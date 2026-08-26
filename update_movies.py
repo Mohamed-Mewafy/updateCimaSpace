@@ -24,7 +24,6 @@ def clean_movie_title(raw_title):
     if not raw_title:
         return ""
     
-    # تنظيف شامل لأي سنين (19xx أو 20xx) وأقواس ورموز وكلمات شائعة
     title = re.sub(r'\b(19|20)\d{2}\b', '', raw_title)
     title = re.sub(r'[()\[\]{}]', ' ', title)
     title = re.sub(r'[-–—|:]', ' ', title)
@@ -44,8 +43,8 @@ def process_table(table_info):
 
     batch_number = 1
     while True:
-        # جلب دفعة جديدة مكونة من 1000 عنصر التي تحتوي على وصف فارغ
-        url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc},{col_poster}&or=({col_desc}.is.null,{col_desc}.eq.)&limit=1000"
+        # جلب العناصر التي لم تتم معالجتها بعد (tmbd = false)
+        url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc},{col_poster}&tmbd=eq.false&limit=1000"
         response = requests.get(url, headers=headers)
 
         if response.status_code != 200:
@@ -54,10 +53,10 @@ def process_table(table_info):
 
         items = response.json()
         if not items:
-            print(f"تم الانتهاء من كافة عناصر جدول {table_name} بنجاح ولم يتبق عناصر بحاجة للتحديث.", flush=True)
+            print(f"تم الانتهاء من كافة عناصر جدول {table_name} ولم يتبق عناصر بحاجة للتحديث.", flush=True)
             break
 
-        print(f"\n[الدفعة {batch_number}] - تم جلب {len(items)} عنصر لتحديثهم في {table_name}...", flush=True)
+        print(f"\n[الدفعة {batch_number}] - تم جلب {len(items)} عنصر غير معالج في {table_name}...", flush=True)
 
         success_count = 0
         for index, item in enumerate(items, 1):
@@ -90,14 +89,16 @@ def process_table(table_info):
                         media_data = res_en["results"][0]
                         found_lang = "بالإنجليزي"
 
+                # تعيين العمود tmbd ليصبح true عند الانتهاء من محاولة المعالجة
+                update_payload = {"tmbd": True}
+
                 if media_data:
                     new_description = media_data.get("overview")
                     new_rating = media_data.get("vote_average")
-                    poster_path = media_data.path if hasattr(media_data, 'path') else media_data.get("poster_path")
+                    poster_path = media_data.get("poster_path")
                     
                     poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
 
-                    update_payload = {}
                     if new_description:
                         update_payload[col_desc] = new_description
                     else:
@@ -109,32 +110,35 @@ def process_table(table_info):
                     if poster_url:
                         update_payload[col_poster] = poster_url
 
-                    if update_payload:
-                        update_url = f"{SUPABASE_URL}/rest/v1/{table_name}?id=eq.{item_id}"
-                        update_res = requests.patch(update_url, headers=headers, json=update_payload)
-
-                        if update_res.status_code in [200, 204]:
-                            poster_msg = "مع بوستر 🖼️" if poster_url else "بدون بوستر ❌"
-                            print(f"[{index}/{len(items)}] ✓ تم تحديث ({table_name}) [{found_lang}] ({poster_msg}): {raw_title}", flush=True)
-                            success_count += 1
-                        else:
-                            print(f"[{index}/{len(items)}] ✗ خطأ قاعدة بيانات في {table_name}: {update_res.text}", flush=True)
                 else:
-                    print(f"[{index}/{len(items)}] ⮭ غير موجود في TMDB: {raw_title}", flush=True)
+                    update_payload[col_desc] = "لا يوجد وصف متوفر"
+
+                update_url = f"{SUPABASE_URL}/rest/v1/{table_name}?id=eq.{item_id}"
+                update_res = requests.patch(update_url, headers=headers, json=update_payload)
+
+                if update_res.status_code in [200, 204]:
+                    if media_data:
+                        poster_msg = "مع بوستر 🖼️" if poster_url else "بدون بوستر ❌"
+                        print(f"[{index}/{len(items)}] ✓ تم تحديث ({table_name}) [{found_lang}] ({poster_msg}): {raw_title}", flush=True)
+                    else:
+                        print(f"[{index}/{len(items)}] ⮭ غير موجود في TMDB وتم تعليمه (تخطي مستقبلاً): {raw_title}", flush=True)
+                    success_count += 1
+                else:
+                    print(f"[{index}/{len(items)}] ✗ خطأ قاعدة بيانات في {table_name}: {update_res.text}", flush=True)
 
             except Exception as e:
                 print(f"[{index}/{len(items)}] ⚠ خطأ مع العنصر {raw_title}: {e}", flush=True)
 
             time.sleep(0.15)
         
-        print(f"انتهت الدفعة {batch_number} من جدول {table_name}. تم تحديث {success_count} من أصل {len(items)} عنصر.", flush=True)
+        print(f"انتهت الدفعة {batch_number} من جدول {table_name}. تم معالجة {success_count} من أصل {len(items)} عنصر.", flush=True)
         batch_number += 1
 
 if __name__ == "__main__":
     if not TMDB_API_KEY:
         print("خطأ: مفتاح TMDB غير موجود!", flush=True)
     else:
-        print("=== بدء تشغيل السكربت لمعالجة الجداول بالترتيب حتى الانتهاء التام ===", flush=True)
+        print("=== بدء تشغيل السكربت بنظام تخطي العنصر عبر عمود tmbd ===", flush=True)
         for table in TARGET_TABLES:
             process_table(table)
         print("=== تم الانتهاء من كافة الجداول والدفعات بنجاح تام ===", flush=True)
