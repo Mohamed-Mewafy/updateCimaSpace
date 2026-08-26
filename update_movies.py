@@ -40,8 +40,8 @@ def process_table(table_info):
 
     print(f"\n--- فحص جدول: {table_name} ---", flush=True)
 
-    # جلب حتى 1000 عنصر دفعة واحدة ممن لا يملكون وصفاً
-    url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc}&or=description.is.null,description.eq.&limit=1000"
+    # تصحيح الاستعلام بالكامل ليعمل بشكل سليم مع فلاتر Supabase
+    url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc}&or=({col_desc}.is.null,{col_desc}.eq.)&limit=1000"
     response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
@@ -116,7 +116,6 @@ def process_table(table_info):
         except Exception as e:
             print(f"[{index}/{len(items)}] ⚠ خطأ مع العنصر {raw_title}: {e}", flush=True)
 
-        # مهلة قصيرة جداً (0.15 ثانية) لضمان عدم ضغط السيرفر وحفظ سرعة المعالجة لـ 1000 عنصر
         time.sleep(0.15)
     
     print(f"انتهى تحديث دفعة جدول {table_name}. تم بنجاح تحديث {success_count} من أصل {len(items)} عنصر.", flush=True)
