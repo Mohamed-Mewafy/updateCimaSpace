@@ -24,10 +24,12 @@ def clean_movie_title(raw_title):
     if not raw_title:
         return ""
     
+    # تنظيف شامل لأي سنين (19xx أو 20xx) وأقواس ورموز وكلمات شائعة
     title = re.sub(r'\b(19|20)\d{2}\b', '', raw_title)
-    title = re.sub(r'[()\[\]{}]', '', title)
+    title = re.sub(r'[()\[\]{}]', ' ', title)
     title = re.sub(r'[-–—|:]', ' ', title)
-    title = re.sub(r'\b(عرض|ترجمه|مدبلج|كامل|HD|1080p|720p|4K)\b', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'\b(عرض|ترجمه|مدبلج|كامل|HD|1080p|720p|4K|اون|لاين|مترجم)\b', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'\s+', ' ', title)
     
     return title.strip()
 
@@ -40,8 +42,7 @@ def process_table(table_info):
 
     print(f"\n--- فحص جدول: {table_name} ---", flush=True)
 
-    # تصحيح الاستعلام بالكامل ليعمل بشكل سليم مع فلاتر Supabase
-    url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc}&or=({col_desc}.is.null,{col_desc}.eq.)&limit=1000"
+    url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc},{col_poster}&or=({col_desc}.is.null,{col_desc}.eq.)&limit=1000"
     response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
@@ -93,11 +94,16 @@ def process_table(table_info):
                 
                 poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}" if poster_path else None
 
+                # تجهيز البيانات للإرسال وضمان وجود الوصف والبوستر والتقييم
                 update_payload = {}
                 if new_description:
                     update_payload[col_desc] = new_description
+                else:
+                    update_payload[col_desc] = "لا يوجد وصف متوفر"
+                    
                 if new_rating is not None:
                     update_payload[col_rating] = str(round(new_rating, 1))
+                    
                 if poster_url:
                     update_payload[col_poster] = poster_url
 
@@ -106,10 +112,11 @@ def process_table(table_info):
                     update_res = requests.patch(update_url, headers=headers, json=update_payload)
 
                     if update_res.status_code in [200, 204]:
-                        print(f"[{index}/{len(items)}] ✓ تم تحديث ({table_name}) [{found_lang}]: {raw_title}", flush=True)
+                        poster_msg = "مع بوستر 🖼️" if poster_url else "بدون بوستر ❌"
+                        print(f"[{index}/{len(items)}] ✓ تم تحديث ({table_name}) [{found_lang}] ({poster_msg}): {raw_title}", flush=True)
                         success_count += 1
                     else:
-                        print(f"[{index}/{len(items)}] ✗ خطأ تحديث في {table_name}: {update_res.text}", flush=True)
+                        print(f"[{index}/{len(items)}] ✗ خطأ قاعدة بيانات في {table_name}: {update_res.text}", flush=True)
             else:
                 print(f"[{index}/{len(items)}] ⮭ غير موجود في TMDB: {raw_title}", flush=True)
 
