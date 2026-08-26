@@ -38,9 +38,10 @@ def process_table(table_info):
     col_rating = table_info["rating"]
     col_poster = table_info["poster"]
 
-    print(f"\n--- فحص وتحديث جدول: {table_name} ---", flush=True)
+    print(f"\n--- فحص جدول: {table_name} ---", flush=True)
 
-    url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc}"
+    # جلب حتى 1000 عنصر دفعة واحدة ممن لا يملكون وصفاً
+    url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc}&or=description.is.null,description.eq.&limit=1000"
     response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
@@ -49,18 +50,16 @@ def process_table(table_info):
 
     items = response.json()
     if not items:
-        print(f"لا توجد بيانات في جدول {table_name}.", flush=True)
+        print(f"لا توجد عناصر جديدة تحتاج لتحديث في جدول {table_name}.", flush=True)
         return
 
+    print(f"تم جلب دفعة مكونة من {len(items)} عنصر للبدء في تحديثهم...", flush=True)
+
     success_count = 0
-    for item in items:
+    for index, item in enumerate(items, 1):
         item_id = item.get("id")
         raw_title = item.get(col_title)
-        current_desc = item.get(col_desc)
-
-        if current_desc and len(current_desc.strip()) > 10:
-            continue
-
+        
         if not raw_title:
             continue
 
@@ -107,23 +106,26 @@ def process_table(table_info):
                     update_res = requests.patch(update_url, headers=headers, json=update_payload)
 
                     if update_res.status_code in [200, 204]:
-                        print(f"✓ تم تحديث ({table_name}) {found_lang}: {raw_title}", flush=True)
+                        print(f"[{index}/{len(items)}] ✓ تم تحديث ({table_name}) [{found_lang}]: {raw_title}", flush=True)
                         success_count += 1
                     else:
-                        print(f"✗ خطأ تحديث في {table_name}: {update_res.text}", flush=True)
+                        print(f"[{index}/{len(items)}] ✗ خطأ تحديث في {table_name}: {update_res.text}", flush=True)
+            else:
+                print(f"[{index}/{len(items)}] ⮭ غير موجود في TMDB: {raw_title}", flush=True)
 
         except Exception as e:
-            print(f"⚠ خطأ مع العنصر {raw_title}: {e}", flush=True)
+            print(f"[{index}/{len(items)}] ⚠ خطأ مع العنصر {raw_title}: {e}", flush=True)
 
-        time.sleep(0.2)
+        # مهلة قصيرة جداً (0.15 ثانية) لضمان عدم ضغط السيرفر وحفظ سرعة المعالجة لـ 1000 عنصر
+        time.sleep(0.15)
     
-    print(f"انتهى تحديث جدول {table_name}. تم تحديث {success_count} عنصر.", flush=True)
+    print(f"انتهى تحديث دفعة جدول {table_name}. تم بنجاح تحديث {success_count} من أصل {len(items)} عنصر.", flush=True)
 
 if __name__ == "__main__":
     if not TMDB_API_KEY:
         print("خطأ: مفتاح TMDB غير موجود!", flush=True)
     else:
-        print("=== بدء تشغيل السكربت لتحديث البيانات ===", flush=True)
+        print("=== بدء تشغيل السكربت لتحديث دفعة الـ 1000 عنصر ===", flush=True)
         for table in TARGET_TABLES:
             process_table(table)
-        print("=== تم الانتهاء من جميع الجداول بنجاح ===", flush=True)
+        print("=== تم الانتهاء من دورة الدفعة الحالية بنجاح ===", flush=True)
