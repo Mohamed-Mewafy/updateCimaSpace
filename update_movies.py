@@ -7,7 +7,6 @@ SUPABASE_URL = "https://rtsmuwuwvvdcmzcboarq.supabase.co"
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 TMDB_API_KEY = os.environ.get("TMDB_API_KEY")
 
-# الجداول المستهدفة بناءً على هيكل قاعدة البيانات لديك
 TARGET_TABLES = [
     {"name": "movies_cima", "title": "title", "desc": "description", "rating": "rating", "poster": "poster_url"},
     {"name": "tv_series", "title": "title", "desc": "description", "rating": "rating", "poster": "poster_url"},
@@ -39,19 +38,18 @@ def process_table(table_info):
     col_rating = table_info["rating"]
     col_poster = table_info["poster"]
 
-    print(f"\n--- فحص وتحديث جدول: {table_name} ---")
+    print(f"\n--- فحص وتحديث جدول: {table_name} ---", flush=True)
 
-    # جلب العناصر التي قد تحتاج لتحديث (مثلاً التي لا تحتوي على وصف أو تقييم)
     url = f"{SUPABASE_URL}/rest/v1/{table_name}?select=id,{col_title},{col_desc}"
     response = requests.get(url, headers=headers)
 
     if response.status_code != 200:
-        print(f"فشل جلب البيانات من جدول {table_name}: {response.text}")
+        print(f"فشل جلب البيانات من جدول {table_name}: {response.text}", flush=True)
         return
 
     items = response.json()
     if not items:
-        print(f"لا توجد بيانات في جدول {table_name}.")
+        print(f"لا توجد بيانات في جدول {table_name}.", flush=True)
         return
 
     success_count = 0
@@ -60,8 +58,6 @@ def process_table(table_info):
         raw_title = item.get(col_title)
         current_desc = item.get(col_desc)
 
-        # لو العنصر عنده وصف مسبقاً، ممكن نتخطاه عشان نوفر طلبات API (اختياري)
-        # لو حابب تحدث الكل شيل الشرط ده
         if current_desc and len(current_desc.strip()) > 10:
             continue
 
@@ -73,7 +69,6 @@ def process_table(table_info):
             search_query = raw_title
 
         try:
-            # 1. البحث بالعربي
             tmdb_url_ar = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&language=ar-AR&query={requests.utils.quote(search_query)}"
             res_ar = requests.get(tmdb_url_ar).json()
 
@@ -84,7 +79,6 @@ def process_table(table_info):
                 media_data = res_ar["results"][0]
                 found_lang = "بالعربي"
 
-            # 2. البحث بالإنجليزي كبديل
             if not media_data or not media_data.get("overview"):
                 tmdb_url_en = f"https://api.themoviedb.org/3/search/multi?api_key={TMDB_API_KEY}&language=en-US&query={requests.utils.quote(search_query)}"
                 res_en = requests.get(tmdb_url_en).json()
@@ -104,7 +98,6 @@ def process_table(table_info):
                 if new_description:
                     update_payload[col_desc] = new_description
                 if new_rating is not None:
-                    # جدول movies_cima و tv_series يحفظون التقييم كـ text حسب الهيكل الخاص بك
                     update_payload[col_rating] = str(round(new_rating, 1))
                 if poster_url:
                     update_payload[col_poster] = poster_url
@@ -114,36 +107,23 @@ def process_table(table_info):
                     update_res = requests.patch(update_url, headers=headers, json=update_payload)
 
                     if update_res.status_code in [200, 204]:
-                        print(f"✓ تم تحديث ({table_name}) {found_lang}: {raw_title}")
+                        print(f"✓ تم تحديث ({table_name}) {found_lang}: {raw_title}", flush=True)
                         success_count += 1
                     else:
-                        print(f"✗ خطأ تحديث في {table_name}: {update_res.text}")
+                        print(f"✗ خطأ تحديث في {table_name}: {update_res.text}", flush=True)
 
         except Exception as e:
-            print(f"⚠ خطأ مع العنصر {raw_title}: {e}")
+            print(f"⚠ خطأ مع العنصر {raw_title}: {e}", flush=True)
 
-        time.sleep(0.3)
+        time.sleep(0.2)
     
-    print(f"انتهى تحديث جدول {table_name}. تم تحديث {success_count} عنصر.")
-
-def main_loop():
-    if not TMDB_API_KEY:
-        print("خطأ: مفتاح TMDB غير موجود!")
-        return
-
-    print("=== بدء تشغيل سكربت التحديث التلقائي المستمر ===")
-    
-    while True:
-        try:
-            for table in TARGET_TABLES:
-                process_table(table)
-            
-            print("\n[الاستراحة] اكتملت دورة الفحص لجميع الجداول. سيتم إعادة التشغيل بعد ساعة...")
-            time.sleep(3600)  # ينتظر ساعة كاملة قبل بدء دورة جديدة لتجنب الحظر
-            
-        except Exception as e:
-            print(f"⚠ حدث خطأ عام في الحلقة الرئيسية: {e}")
-            time.sleep(60)
+    print(f"انتهى تحديث جدول {table_name}. تم تحديث {success_count} عنصر.", flush=True)
 
 if __name__ == "__main__":
-    main_loop()
+    if not TMDB_API_KEY:
+        print("خطأ: مفتاح TMDB غير موجود!", flush=True)
+    else:
+        print("=== بدء تشغيل السكربت لتحديث البيانات ===", flush=True)
+        for table in TARGET_TABLES:
+            process_table(table)
+        print("=== تم الانتهاء من جميع الجداول بنجاح ===", flush=True)
